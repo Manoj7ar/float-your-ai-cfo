@@ -2,11 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import { formatCurrency, daysOverdue, getInvoiceStatusColor } from "@/lib/format";
-import { Phone, CreditCard, Check, FileText, Plus } from "lucide-react";
+import { Phone, CreditCard, Check, FileText, Plus, Pencil, Save } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 import { InvoiceUploadDialog } from "./InvoiceUploadDialog";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Invoice = Tables<"invoices">;
@@ -20,10 +23,33 @@ interface InvoiceTableProps {
 
 export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: InvoiceTableProps) {
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPhone, setEditPhone] = useState("");
+  const { toast } = useToast();
+
   const sorted = [...invoices].sort((a, b) => {
     const order: Record<string, number> = { overdue: 0, chasing: 1, unpaid: 2, upcoming: 3, paid: 4 };
     return (order[a.status ?? "unpaid"] ?? 2) - (order[b.status ?? "unpaid"] ?? 2);
   });
+
+  const startEdit = (inv: Invoice) => {
+    setEditingId(inv.id);
+    setEditPhone(inv.client_phone ?? "");
+  };
+
+  const savePhone = async (id: string) => {
+    const { error } = await supabase
+      .from("invoices")
+      .update({ client_phone: editPhone.trim() })
+      .eq("id", id);
+    if (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save phone number" });
+    } else {
+      toast({ title: "Saved", description: "Phone number updated" });
+      onRefresh?.();
+    }
+    setEditingId(null);
+  };
 
   return (
     <Card className="flex flex-col">
@@ -50,6 +76,7 @@ export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: In
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-[10px]">Client</TableHead>
+                <TableHead className="text-[10px]">Phone</TableHead>
                 <TableHead className="text-[10px] text-right">Amount</TableHead>
                 <TableHead className="text-[10px]">Due</TableHead>
                 <TableHead className="text-[10px]">Status</TableHead>
@@ -60,6 +87,7 @@ export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: In
               {sorted.map((inv) => {
                 const overdueDays = inv.due_date ? daysOverdue(inv.due_date) : 0;
                 const isResolver = inv.invoice_number === "INV-047" && payrollAtRisk;
+                const isEditing = editingId === inv.id;
 
                 return (
                   <TableRow key={inv.id} className={`group ${isResolver ? "bg-float-red/[0.03]" : ""}`}>
@@ -69,6 +97,37 @@ export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: In
                         {inv.invoice_number}
                         {isResolver && <span className="ml-1 text-float-red font-medium">· Resolves payroll crisis</span>}
                       </p>
+                    </TableCell>
+                    <TableCell className="py-3">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editPhone}
+                            onChange={(e) => setEditPhone(e.target.value)}
+                            placeholder="+44..."
+                            className="h-7 w-28 text-xs"
+                            onKeyDown={(e) => e.key === "Enter" && savePhone(inv.id)}
+                            autoFocus
+                          />
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => savePhone(inv.id)}>
+                            <Save size={12} />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">
+                            {inv.client_phone || "—"}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100"
+                            onClick={() => startEdit(inv)}
+                          >
+                            <Pencil size={10} />
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="py-3 text-right font-mono text-sm font-semibold tabular-nums">
                       {formatCurrency(inv.amount)}
