@@ -124,20 +124,18 @@ serve(async (req) => {
           elevenLabsWs.onopen = () => {
             console.log("[Bridge] ElevenLabs WebSocket connected");
 
-            // Build the initial override prompt with invoice context
             const clientName = customParams.clientName || "the client";
             const invoiceNumber = customParams.invoiceNumber || "on file";
             const amount = customParams.amount || "an outstanding amount";
 
-            const prompt = `You are a professional but friendly debt collection agent calling on behalf of The Cobblestone Kitchen restaurant. You're calling ${clientName} about invoice ${invoiceNumber} for ${amount} which is overdue. Your goal is to get a commitment to pay. Be polite but firm. Keep your responses short and natural — this is a phone call, not an email. If they agree to pay, thank them and ask when. If they can't pay, try to negotiate a payment plan. Don't be rude or threatening.`;
-
+            // Send dynamic context without overriding agent config
             elevenLabsWs!.send(
               JSON.stringify({
                 type: "conversation_initiation_client_data",
-                conversation_config_override: {
-                  agent: {
-                    prompt: { prompt },
-                  },
+                dynamic_variables: {
+                  client_name: clientName,
+                  invoice_number: invoiceNumber,
+                  amount: amount,
                 },
               })
             );
