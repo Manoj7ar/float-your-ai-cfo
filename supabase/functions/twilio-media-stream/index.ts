@@ -1,0 +1,228 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const ELEVENLABS_AGENT_ID = "agent_0601kj0ahmzeej18y9xp6av1bdrh";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+// μ-law to 16-bit linear PCM decode table
+const MULAW_DECODE: Int16Array = new Int16Array(256);
+for (let i = 0; i < 256; i++) {
+  let mu = ~i & 0xff;
+  const sign = mu & 0x80;
+  const exponent = (mu >> 4) & 0x07;
+  const mantissa = mu & 0x0f;
+  let magnitude = ((mantissa << 3) + 0x84) << exponent;
+  magnitude -= 0x84;
+  MULAW_DECODE[i] = sign !== 0 ? -magnitude : magnitude;
+}
+
+// Encode a 16-bit linear PCM sample to μ-law byte
+function linearToMulaw(sample: number): number {
+  const BIAS = 0x84;
+  const MAX = 32635;
+  let sign = 0;
+  if (sample < 0) {
+    sign = 0x80;
+    sample = -sample;
+  }
+  if (sample > MAX) sample = MAX;
+  sample += BIAS;
+  let exponent = 7;
+  let mask = 0x4000;
+  while (exponent > 0 && (sample & mask) === 0) {
+    exponent--;
+    mask >>= 1;
+  }
+  const mantissa = (sample >> (exponent + 3)) & 0x0f;
+  return ~(sign | (exponent << 4) | mantissa) & 0xff;
+}
+
+// Convert base64 μ-law 8kHz → base64 PCM 16-bit 16kHz (upsample 2×)
+function mulawToLinear16k(b64: string): string {
+  const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const out = new Int16Array(raw.length * 2);
+  for (let i = 0; i < raw.length; i++) {
+    const s = MULAW_DECODE[raw[i]];
+    const next = i < raw.length - 1 ? MULAW_DECODE[raw[i + 1]] : s;
+    out[i * 2] = s;
+    out[i * 2 + 1] = ((s + next) >> 1) as number;
+  }
+  const bytes = new Uint8Array(out.buffer);
+  let bin = "";
+  for (let j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+  return btoa(bin);
+}
+
+// Convert base64 PCM 16-bit 16kHz → base64 μ-law 8kHz (downsample 2×)
+function linear16kToMulaw(b64: string): string {
+  const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const samples = new Int16Array(raw.buffer);
+  const half = Math.floor(samples.length / 2);
+  const out = new Uint8Array(half);
+  for (let i = 0; i < half; i++) {
+    out[i] = linearToMulaw(samples[i * 2]);
+  }
+  let bin = "";
+  for (let j = 0; j < out.length; j++) bin += String.fromCharCode(out[j]);
+  return btoa(bin);
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  // Upgrade HTTP → WebSocket for Twilio's <Connect><Stream>
+  const upgrade = req.headers.get("upgrade") || "";
+  if (upgrade.toLowerCase() !== "websocket") {
+    return new Response("Expected WebSocket upgrade", { status: 426 });
+  }
+
+  const { socket: twilioWs, response } = Deno.upgradeWebSocket(req);
+
+  let elevenLabsWs: WebSocket | null = null;
+  let streamSid: string | null = null;
+  let useConversion = true; // assume PCM ↔ μ-law conversion needed
+
+  twilioWs.onopen = () => {
+    console.log("[Bridge] Twilio WebSocket connected");
+  };
+
+  twilioWs.onmessage = async (event) => {
+    try {
+      const msg = JSON.parse(event.data as string);
+
+      switch (msg.event) {
+        case "start": {
+          streamSid = msg.start.streamSid;
+          const customParams = msg.start.customParameters || {};
+          console.log("[Bridge] Stream started:", streamSid, "params:", JSON.stringify(customParams));
+
+          // Get ElevenLabs signed URL
+          const apiKey = Deno.env.get("ELEVENLABS_API_KEY")!;
+          const res = await fetch(
+            `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${ELEVENLABS_AGENT_ID}`,
+            { headers: { "xi-api-key": apiKey } }
+          );
+
+          if (!res.ok) {
+            const errText = await res.text();
+            console.error("[Bridge] Failed to get signed URL:", res.status, errText);
+            twilioWs.close();
+            return;
+          }
+
+          const { signed_url } = await res.json();
+          console.log("[Bridge] Connecting to ElevenLabs agent...");
+
+          elevenLabsWs = new WebSocket(signed_url);
+
+          elevenLabsWs.onopen = () => {
+            console.log("[Bridge] ElevenLabs WebSocket connected");
+
+            // Build the initial override prompt with invoice context
+            const clientName = customParams.clientName || "the client";
+            const invoiceNumber = customParams.invoiceNumber || "on file";
+            const amount = customParams.amount || "an outstanding amount";
+
+            const prompt = `You are a professional but friendly debt collection agent calling on behalf of The Cobblestone Kitchen restaurant. You're calling ${clientName} about invoice ${invoiceNumber} for ${amount} which is overdue. Your goal is to get a commitment to pay. Be polite but firm. Keep your responses short and natural — this is a phone call, not an email. If they agree to pay, thank them and ask when. If they can't pay, try to negotiate a payment plan. Don't be rude or threatening.`;
+
+            elevenLabsWs!.send(
+              JSON.stringify({
+                type: "conversation_initiation_client_data",
+                conversation_config_override: {
+                  agent: {
+                    prompt: { prompt },
+                    first_message: `Hello, is this ${clientName}? I'm calling from The Cobblestone Kitchen regarding an overdue invoice of ${amount}. Do you have a moment?`,
+                  },
+                },
+              })
+            );
+          };
+
+          elevenLabsWs.onmessage = (elEvent) => {
+            try {
+              const data = JSON.parse(elEvent.data as string);
+
+              if (data.type === "audio" && data.audio_event?.audio_base_64 && streamSid) {
+                // ElevenLabs → Twilio: convert PCM 16kHz to μ-law 8kHz
+                const payload = useConversion
+                  ? linear16kToMulaw(data.audio_event.audio_base_64)
+                  : data.audio_event.audio_base_64;
+
+                twilioWs.send(
+                  JSON.stringify({
+                    event: "media",
+                    streamSid,
+                    media: { payload },
+                  })
+                );
+              }
+
+              if (data.type === "conversation_initiation_metadata") {
+                console.log("[Bridge] ElevenLabs conversation started:", JSON.stringify(data).slice(0, 200));
+                // Check if ElevenLabs is already using μ-law 8000
+                const outputFmt = data.conversation_initiation_metadata_event?.agent_output_audio_format;
+                if (outputFmt === "ulaw_8000") {
+                  useConversion = false;
+                  console.log("[Bridge] Agent outputs μ-law 8kHz — no conversion needed");
+                }
+              }
+
+              if (data.type === "agent_response") {
+                console.log("[Bridge] Agent said:", data.agent_response_event?.agent_response?.slice(0, 100));
+              }
+            } catch (e) {
+              console.error("[Bridge] Error handling ElevenLabs msg:", e);
+            }
+          };
+
+          elevenLabsWs.onclose = (ev) => {
+            console.log("[Bridge] ElevenLabs closed:", ev.code, ev.reason);
+          };
+
+          elevenLabsWs.onerror = (e) => {
+            console.error("[Bridge] ElevenLabs error:", e);
+          };
+          break;
+        }
+
+        case "media": {
+          if (elevenLabsWs?.readyState === WebSocket.OPEN) {
+            // Twilio → ElevenLabs: convert μ-law 8kHz to PCM 16kHz
+            const audioChunk = useConversion
+              ? mulawToLinear16k(msg.media.payload)
+              : msg.media.payload;
+
+            elevenLabsWs.send(
+              JSON.stringify({ user_audio_chunk: audioChunk })
+            );
+          }
+          break;
+        }
+
+        case "stop":
+          console.log("[Bridge] Twilio stream stopped");
+          elevenLabsWs?.close();
+          break;
+      }
+    } catch (e) {
+      console.error("[Bridge] Error processing Twilio msg:", e);
+    }
+  };
+
+  twilioWs.onclose = () => {
+    console.log("[Bridge] Twilio WebSocket closed");
+    elevenLabsWs?.close();
+  };
+
+  twilioWs.onerror = (e) => {
+    console.error("[Bridge] Twilio WebSocket error:", e);
+  };
+
+  return response;
+});

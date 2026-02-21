@@ -25,21 +25,23 @@ serve(async (req) => {
     if (!to) throw new Error("'to' phone number is required");
     if (!clientName) throw new Error("'clientName' is required");
 
-    // Build TwiML using ElevenLabs TTS audio via tts-audio edge function
+    // Build TwiML using ElevenLabs Conversational AI via WebSocket bridge
     const amountFormatted = `€${(amount / 100).toLocaleString("en-IE", { minimumFractionDigits: 2 })}`;
 
-    const mainMessage = `Hello, this is an automated call regarding an overdue invoice from The Cobblestone Kitchen. We are calling about invoice ${invoiceNumber || "on your account"}, for the amount of ${amountFormatted}, which was due on ${dueDate || "a previous date"}. This payment is now overdue and we kindly request immediate payment of the full amount of ${amountFormatted}. Please arrange payment as soon as possible to avoid further follow-up action. If you have already made this payment, please disregard this message. To discuss payment arrangements, please contact us directly. Thank you for your attention to this matter.`;
-
-    const repeatMessage = `Once again, please pay the outstanding amount of ${amountFormatted} for invoice ${invoiceNumber || "on file"} at your earliest convenience. Thank you, and goodbye.`;
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const ttsBaseUrl = `${SUPABASE_URL}/functions/v1/tts-audio`;
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    // WebSocket URL for the media stream bridge
+    const wsUrl = SUPABASE_URL.replace("https://", "wss://") + "/functions/v1/twilio-media-stream";
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${ttsBaseUrl}?text=${encodeURIComponent(mainMessage)}</Play>
-  <Pause length="2"/>
-  <Play>${ttsBaseUrl}?text=${encodeURIComponent(repeatMessage)}</Play>
+  <Connect>
+    <Stream url="${wsUrl}">
+      <Parameter name="clientName" value="${clientName}" />
+      <Parameter name="invoiceNumber" value="${invoiceNumber || ''}" />
+      <Parameter name="amount" value="${amountFormatted}" />
+      <Parameter name="callId" value="${callId || ''}" />
+    </Stream>
+  </Connect>
 </Response>`;
 
     // Make the Twilio call
@@ -49,7 +51,7 @@ serve(async (req) => {
     params.append("To", to);
     params.append("From", TWILIO_PHONE_NUMBER);
     params.append("Twiml", twiml);
-    if (callId) params.append("StatusCallback", `${Deno.env.get("SUPABASE_URL")}/functions/v1/twilio-status-callback?callId=${callId}`);
+    if (callId) params.append("StatusCallback", `${SUPABASE_URL}/functions/v1/twilio-status-callback?callId=${callId}`);
     params.append("StatusCallbackEvent", "completed");
 
     const twilioResponse = await fetch(

@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.tts-audio]
 verify_jwt = false
+
+[functions.twilio-media-stream]
+verify_jwt = false
