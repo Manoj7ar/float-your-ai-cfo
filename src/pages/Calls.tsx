@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Phone, PhoneOff, Mic, MicOff, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Phone, PhoneOff, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +9,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useConversation } from "@elevenlabs/react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { formatCurrency } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
+const AGENT_ID = "agent_0301khzyjj0ee34tfg0e1hcqjbjx";
+
 type Call = Tables<"calls">;
+type Invoice = Tables<"invoices">;
 
 const statusIcon: Record<string, React.ReactNode> = {
   completed: <CheckCircle2 className="h-4 w-4 text-float-green" />,
@@ -31,22 +35,24 @@ export default function CallsPage() {
   const { account } = useAccount();
   const { toast } = useToast();
   const [calls, setCalls] = useState<Call[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
-  const [agentId, setAgentId] = useState("");
+  const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callTimer, setCallTimer] = useState(0);
   const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const conversation = useConversation({
     onConnect: () => {
-      toast({ title: "Connected", description: "Voice agent is ready" });
+      toast({ title: "Connected", description: "Voice agent is ready — speak now" });
       const interval = setInterval(() => setCallTimer((t) => t + 1), 1000);
       setTimerInterval(interval);
     },
     onDisconnect: () => {
       if (timerInterval) clearInterval(timerInterval);
       setCallTimer(0);
+      setActiveInvoice(null);
     },
     onError: (error) => {
       console.error("Conversation error:", error);
@@ -54,21 +60,20 @@ export default function CallsPage() {
     },
   });
 
-  // Fetch calls
+  // Fetch calls + overdue invoices
   useEffect(() => {
     if (!account) return;
-    supabase
-      .from("calls")
-      .select("*")
-      .eq("account_id", account.id)
-      .order("initiated_at", { ascending: false })
-      .then(({ data }) => {
-        if (data) setCalls(data);
-        setLoading(false);
-      });
+    Promise.all([
+      supabase.from("calls").select("*").eq("account_id", account.id).order("initiated_at", { ascending: false }),
+      supabase.from("invoices").select("*").eq("account_id", account.id).in("status", ["overdue", "chasing", "unpaid"]),
+    ]).then(([callsRes, invRes]) => {
+      if (callsRes.data) setCalls(callsRes.data);
+      if (invRes.data) setInvoices(invRes.data);
+      setLoading(false);
+    });
   }, [account]);
 
-  // Realtime subscription
+  // Realtime for calls
   useEffect(() => {
     if (!account) return;
     const channel = supabase
@@ -84,20 +89,37 @@ export default function CallsPage() {
     return () => { supabase.removeChannel(channel); };
   }, [account]);
 
-  const startVoiceAgent = useCallback(async () => {
-    if (!agentId.trim()) {
-      toast({ variant: "destructive", title: "Missing Agent ID", description: "Enter your ElevenLabs Agent ID to start a call" });
+  const overdueInvoices = useMemo(
+    () => invoices.filter((i) => i.status === "overdue" && i.client_phone),
+    [invoices]
+  );
+
+  const startCall = useCallback(async (invoice: Invoice) => {
+    if (!invoice.client_phone) {
+      toast({ variant: "destructive", title: "No phone number", description: "Add a phone number to this client first in the Dashboard" });
       return;
     }
     setIsConnecting(true);
+    setActiveInvoice(invoice);
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const { data, error } = await supabase.functions.invoke("elevenlabs-conversation-token", {
-        body: { agentId: agentId.trim() },
+        body: { agentId: AGENT_ID },
       });
 
       if (error || !data?.token) throw new Error(error?.message || "No token received");
+
+      // Create call record
+      if (account) {
+        await supabase.from("calls").insert({
+          account_id: account.id,
+          invoice_id: invoice.id,
+          client_name: invoice.client_name,
+          client_phone: invoice.client_phone,
+          status: "initiated",
+        });
+      }
 
       await conversation.startSession({
         conversationToken: data.token,
@@ -105,12 +127,13 @@ export default function CallsPage() {
       });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Failed to start", description: err.message });
+      setActiveInvoice(null);
     } finally {
       setIsConnecting(false);
     }
-  }, [agentId, conversation, toast]);
+  }, [conversation, toast, account]);
 
-  const endVoiceAgent = useCallback(async () => {
+  const endCall = useCallback(async () => {
     await conversation.endSession();
   }, [conversation]);
 
@@ -123,35 +146,28 @@ export default function CallsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-6 py-4">
-        <h1 className="text-lg font-semibold text-foreground">Calls</h1>
-        <p className="text-sm text-muted-foreground">AI-powered voice calls for invoice collection</p>
+        <h1 className="text-lg font-semibold text-foreground">Collection Calls</h1>
+        <p className="text-sm text-muted-foreground">AI voice agent for chasing overdue invoices</p>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: Voice agent */}
-        <div className="flex w-96 flex-col border-r border-border p-6">
-          <Card className="mb-6">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Voice Agent</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  ElevenLabs Agent ID
-                </label>
-                <input
-                  type="text"
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  placeholder="agent_..."
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                  disabled={conversation.status === "connected"}
-                />
-              </div>
+        {/* Left: Overdue invoices to call */}
+        <div className="flex w-96 flex-col border-r border-border">
+          {conversation.status === "connected" && activeInvoice ? (
+            <div className="flex flex-col items-center gap-4 p-6">
+              <Card className="w-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Active Call</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{activeInvoice.client_name}</p>
+                    <p className="text-xs text-muted-foreground">{activeInvoice.client_phone}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Invoice: {activeInvoice.invoice_number} · {formatCurrency(activeInvoice.amount)}
+                    </p>
+                  </div>
 
-              {conversation.status === "connected" ? (
-                <div className="space-y-4">
-                  {/* Active call UI */}
                   <div className="flex flex-col items-center gap-3 rounded-xl bg-primary/5 p-6">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 animate-pulse rounded-full bg-float-green" />
@@ -160,7 +176,6 @@ export default function CallsPage() {
                       </span>
                     </div>
 
-                    {/* Soundwave */}
                     <div className="flex h-10 items-end gap-0.5">
                       {Array.from({ length: 14 }).map((_, i) => (
                         <div
@@ -180,38 +195,72 @@ export default function CallsPage() {
                     </span>
                   </div>
 
-                  <Button onClick={endVoiceAgent} variant="destructive" className="w-full">
+                  <Button onClick={endCall} variant="destructive" className="w-full">
                     <PhoneOff className="mr-2 h-4 w-4" /> End Call
                   </Button>
-                </div>
-              ) : (
-                <Button
-                  onClick={startVoiceAgent}
-                  disabled={isConnecting || !agentId.trim()}
-                  className="w-full"
-                >
-                  {isConnecting ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connecting…</>
-                  ) : (
-                    <><Phone className="mr-2 h-4 w-4" /> Start Voice Agent</>
-                  )}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
-          <p className="text-xs text-muted-foreground">
-            Set up a conversational AI agent in the{" "}
-            <a href="https://elevenlabs.io/app/conversational-ai" target="_blank" rel="noreferrer" className="text-primary underline">
-              ElevenLabs dashboard
-            </a>{" "}
-            and paste the Agent ID above. The agent can make collection calls on your behalf.
-          </p>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              <div className="border-b border-border px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">Overdue — Ready to Call</h2>
+                <p className="text-xs text-muted-foreground">Click to start an AI collection call</p>
+              </div>
+              <ScrollArea className="flex-1">
+                {loading ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+                  </div>
+                ) : overdueInvoices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+                    <Phone className="mb-3 h-10 w-10 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">No overdue invoices with phone numbers</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Add phone numbers to overdue clients in the Dashboard to enable calling
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 p-2">
+                    {overdueInvoices.map((inv) => (
+                      <button
+                        key={inv.id}
+                        onClick={() => startCall(inv)}
+                        disabled={isConnecting}
+                        className="w-full rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{inv.client_name}</p>
+                            <p className="text-xs text-muted-foreground">{inv.client_phone}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold font-mono tabular-nums text-foreground">
+                              {formatCurrency(inv.amount)}
+                            </p>
+                            <p className="text-[10px] text-float-red">
+                              {inv.due_date && `Due ${format(new Date(inv.due_date), "MMM d")}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <Phone size={11} className="text-primary" />
+                          <span className="text-xs text-primary font-medium">
+                            {isConnecting ? "Connecting…" : "Start AI Call"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          )}
         </div>
 
         {/* Right: Call history */}
         <div className="flex-1 overflow-hidden">
-          <div className="px-6 py-4">
+          <div className="px-6 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Call History</h2>
           </div>
           <ScrollArea className="h-[calc(100%-52px)] px-6">
@@ -224,11 +273,11 @@ export default function CallsPage() {
                 <Phone className="mb-3 h-10 w-10 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No calls yet</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Calls initiated through the Fix It flow will appear here
+                  Select an overdue invoice on the left to start a collection call
                 </p>
               </div>
             ) : (
-              <div className="space-y-2 pb-6">
+              <div className="space-y-2 py-4">
                 {calls.map((call) => (
                   <button
                     key={call.id}
