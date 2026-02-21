@@ -90,22 +90,34 @@ export function KpiCards({ account, invoices }: KpiCardsProps) {
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {cards.map((card) => (
+      {cards.map((card, idx) => (
         <Card
           key={card.label}
-          className={`group transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-            card.accent ? "border-float-red/20 bg-float-red/[0.02]" : ""
+          className={`group relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
+            card.accent
+              ? "border-float-red/30 shadow-[0_0_20px_-6px_hsl(var(--float-red)/0.15)]"
+              : "hover:shadow-primary/5"
           }`}
         >
-          <CardContent className="p-4">
+          {/* Decorative top accent bar */}
+          <div className={`absolute inset-x-0 top-0 h-0.5 ${
+            card.accent ? "bg-float-red" : idx === 0 ? "bg-primary" : idx === 3 ? "bg-float-green" : "bg-border"
+          }`} />
+          <CardContent className="p-4 pt-5">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{card.label}</p>
-              <card.icon size={15} className={`text-muted-foreground/50 transition-colors group-hover:text-muted-foreground ${card.accent ? "text-float-red/50" : ""}`} />
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                card.accent
+                  ? "bg-float-red/10 text-float-red"
+                  : "bg-muted/50 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+              }`}>
+                <card.icon size={15} />
+              </div>
             </div>
-            <p className={`mt-2 font-mono text-xl font-bold tabular-nums ${(card as any).valueColor ?? "text-foreground"}`}>
+            <p className={`mt-2.5 font-mono text-2xl font-bold tabular-nums ${(card as any).valueColor ?? "text-foreground"}`}>
               {card.value}
             </p>
-            <div className="mt-2">{card.sub}</div>
+            <div className="mt-2.5">{card.sub}</div>
           </CardContent>
         </Card>
       ))}

@@ -68,17 +68,20 @@ export default function DashboardPage() {
     <>
       <TopBar title="Dashboard" subtitle={account?.business_name ?? undefined} insightCount={insights.length} />
 
-      <div className="space-y-4 p-4 lg:p-6">
+      <div className="space-y-6 p-4 lg:p-6">
 
-        <div className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+        {/* KPI Cards */}
+        <section className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
           <KpiCards account={account} invoices={invoices} />
-        </div>
+        </section>
 
-        <div className="animate-fade-in-up" style={{ animationDelay: "250ms" }}>
+        {/* Cashflow Chart */}
+        <section className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <CashflowChart projections={projections} payrollThreshold={account?.payroll_amount ?? 840000} />
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5 animate-fade-in-up" style={{ animationDelay: "350ms" }}>
+        {/* Invoices + Insights */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-5 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
           <div className="lg:col-span-3">
             <InvoiceTable
               invoices={invoices}
@@ -98,11 +101,12 @@ export default function DashboardPage() {
               }}
             />
           </div>
-        </div>
+        </section>
 
-        <div className="animate-fade-in-up" style={{ animationDelay: "450ms" }}>
+        {/* Benchmarks */}
+        <section className="animate-fade-in-up" style={{ animationDelay: "400ms" }}>
           <BenchmarkPanel />
-        </div>
+        </section>
       </div>
 
       {showFixIt && openIncident && (

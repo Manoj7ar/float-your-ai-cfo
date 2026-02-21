@@ -30,13 +30,13 @@ export function BenchmarkPanel() {
             const s = statusStyle[b.status];
             const Icon = s.icon;
             return (
-              <div key={b.metric} className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div key={b.metric} className="group/bench flex items-center justify-between rounded-lg border border-border p-3.5 transition-all duration-200 hover:border-border/80 hover:shadow-sm">
                 <div className="min-w-0">
                   <p className="text-[11px] text-muted-foreground">{b.metric}</p>
-                  <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-foreground">{b.you}</p>
+                  <p className="mt-1 font-mono text-sm font-bold tabular-nums text-foreground">{b.you}</p>
                 </div>
-                <div className="flex flex-col items-end gap-0.5">
-                  <span className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${s.bg} ${s.text}`}>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${s.bg} ${s.text}`}>
                     <Icon size={10} /> {b.gap}
                   </span>
                   <span className="text-[9px] text-muted-foreground">avg {b.avg}</span>

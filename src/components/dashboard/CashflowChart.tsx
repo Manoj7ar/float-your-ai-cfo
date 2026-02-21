@@ -114,11 +114,11 @@ export function CashflowChart({ projections, payrollThreshold }: CashflowChartPr
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <CardTitle className="text-sm font-semibold">Cashflow Forecast</CardTitle>
-          <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+          <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
             <Sparkles size={10} /> AI-powered
           </span>
         </div>
