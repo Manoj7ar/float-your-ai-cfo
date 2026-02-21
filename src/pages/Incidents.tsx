@@ -1,5 +1,9 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, Clock, CheckCircle2, ChevronDown, ChevronRight, ShieldAlert, Loader2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import {
+  AlertTriangle, Clock, CheckCircle2, ChevronDown, ChevronRight,
+  ShieldAlert, Loader2, Sparkles, Brain, PhoneCall, CreditCard,
+  Zap, BookOpen, TrendingUp,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,11 +11,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAccount } from "@/hooks/useAccount";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/format";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Incident = Tables<"incidents">;
 type IncidentEvent = { type: string; timestamp: string; message: string };
+
+/* ── Config maps ─────────────────────────────────────────── */
 
 const severityColor: Record<string, string> = {
   P1: "bg-float-red/10 text-float-red border-float-red/20",
@@ -35,13 +41,15 @@ const statusColor: Record<string, string> = {
 
 const eventTypeIcon: Record<string, React.ReactNode> = {
   DETECTED: <AlertTriangle className="h-3.5 w-3.5 text-float-red" />,
-  STRATEGY_COMPUTED: <Clock className="h-3.5 w-3.5 text-float-amber" />,
-  PAYMENT_LINK_SENT: <CheckCircle2 className="h-3.5 w-3.5 text-primary" />,
-  CALL_INITIATED: <Clock className="h-3.5 w-3.5 text-float-amber" />,
+  STRATEGY_COMPUTED: <Brain className="h-3.5 w-3.5 text-primary" />,
+  PAYMENT_LINK_SENT: <CreditCard className="h-3.5 w-3.5 text-primary" />,
+  CALL_INITIATED: <PhoneCall className="h-3.5 w-3.5 text-float-amber" />,
   CALL_COMPLETED: <CheckCircle2 className="h-3.5 w-3.5 text-float-green" />,
   PAYMENT_RECEIVED: <CheckCircle2 className="h-3.5 w-3.5 text-float-green" />,
   RESOLVED: <CheckCircle2 className="h-3.5 w-3.5 text-float-green" />,
 };
+
+/* ── Component ───────────────────────────────────────────── */
 
 export default function IncidentsPage() {
   const { account } = useAccount();
@@ -100,28 +108,76 @@ export default function IncidentsPage() {
   });
 
   const openCount = incidents.filter((i) => i.status === "open" || i.status === "investigating").length;
+  const resolvedCount = incidents.filter((i) => i.status === "resolved" || i.status === "closed").length;
+
+  // Count total learnings (events across all incidents)
+  const totalEvents = useMemo(
+    () => incidents.reduce((sum, inc) => sum + (Array.isArray(inc.events) ? (inc.events as IncidentEvent[]).length : 0), 0),
+    [incidents]
+  );
+
+  const callEvents = useMemo(
+    () => incidents.reduce((sum, inc) => {
+      const evts = (Array.isArray(inc.events) ? inc.events : []) as IncidentEvent[];
+      return sum + evts.filter((e) => e.type === "CALL_COMPLETED" || e.type === "CALL_INITIATED").length;
+    }, 0),
+    [incidents]
+  );
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Incidents</h1>
-          <p className="text-sm text-muted-foreground">
-            {openCount > 0 ? `${openCount} active incident${openCount > 1 ? "s" : ""}` : "All clear"}
-          </p>
+      {/* Header */}
+      <div className="border-b border-border px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Zap size={16} className="text-primary" />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-foreground">Incidents</h1>
+              <p className="text-xs text-muted-foreground">
+                Powered by <span className="font-semibold text-foreground">Incident.io</span> · AI continuously learning
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
+            {(["all", "open", "closed"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  filter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
-          {(["all", "open", "closed"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                filter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
+
+        {/* AI Learning Stats Banner */}
+        <div className="mt-4 flex gap-3">
+          <LearningStatCard
+            icon={<Brain size={14} className="text-primary" />}
+            label="Learnings Captured"
+            value={totalEvents}
+          />
+          <LearningStatCard
+            icon={<PhoneCall size={14} className="text-float-amber" />}
+            label="Learning from Calls"
+            value={callEvents}
+          />
+          <LearningStatCard
+            icon={<CheckCircle2 size={14} className="text-float-green" />}
+            label="Incidents Resolved"
+            value={resolvedCount}
+          />
+          <LearningStatCard
+            icon={<TrendingUp size={14} className="text-primary" />}
+            label="Active Incidents"
+            value={openCount}
+            highlight={openCount > 0}
+          />
         </div>
       </div>
 
@@ -144,104 +200,167 @@ export default function IncidentsPage() {
               const expanded = expandedId === incident.id;
 
               return (
-                <Card key={incident.id} className={`transition-shadow ${expanded ? "shadow-md" : ""}`}>
-                  <CardHeader
-                    className="cursor-pointer pb-3"
-                    onClick={() => setExpandedId(expanded ? null : incident.id)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        {expanded ? (
-                          <ChevronDown className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                        )}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            {severityIcon[incident.severity]}
-                            <CardTitle className="text-base">{incident.title}</CardTitle>
-                          </div>
-                          {incident.description && (
-                            <p className="mt-1 text-sm text-muted-foreground">{incident.description}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={severityColor[incident.severity]}>
-                          {incident.severity}
-                        </Badge>
-                        <Badge variant="outline" className={statusColor[incident.status] || ""}>
-                          {incident.status}
-                        </Badge>
-                        {incident.shortfall_amount && (
-                          <span className="font-mono text-sm tabular-nums text-float-red">
-                            {formatCurrency(incident.shortfall_amount)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {incident.opened_at && (
-                      <p className="ml-7 mt-1 text-xs text-muted-foreground">
-                        Opened {format(new Date(incident.opened_at), "MMM d, yyyy · h:mm a")}
-                        {incident.closed_at && ` · Closed ${format(new Date(incident.closed_at), "MMM d, yyyy · h:mm a")}`}
-                      </p>
-                    )}
-                  </CardHeader>
-
-                  {expanded && (
-                    <CardContent className="pt-0">
-                      {/* Timeline */}
-                      <div className="ml-7 border-l-2 border-border pl-4">
-                        {events.length === 0 ? (
-                          <p className="py-2 text-xs text-muted-foreground">No events recorded</p>
-                        ) : (
-                          events.map((evt, i) => (
-                            <div key={i} className="relative mb-4 last:mb-0">
-                              <div className="absolute -left-[1.35rem] top-0.5 h-3 w-3 rounded-full border-2 border-border bg-card" />
-                              <div className="flex items-start gap-2">
-                                {eventTypeIcon[evt.type] || <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
-                                <div>
-                                  <p className="text-sm text-foreground">{evt.message}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {format(new Date(evt.timestamp), "MMM d · h:mm:ss a")}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      {(incident.status === "open" || incident.status === "investigating") && (
-                        <div className="ml-7 mt-4 flex gap-2 border-t border-border pt-4">
-                          {incident.status === "open" && (
-                            <Button size="sm" variant="outline" onClick={() => updateStatus(incident.id, "investigating")}>
-                              Start Investigating
-                            </Button>
-                          )}
-                          <Button size="sm" variant="outline" onClick={() => updateStatus(incident.id, "mitigated")}>
-                            Mark Mitigated
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              addEvent(incident, "RESOLVED", "Incident resolved");
-                              updateStatus(incident.id, "resolved");
-                            }}
-                          >
-                            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Resolve
-                          </Button>
-                        </div>
-                      )}
-                    </CardContent>
-                  )}
-                </Card>
+                <IncidentCard
+                  key={incident.id}
+                  incident={incident}
+                  events={events}
+                  expanded={expanded}
+                  onToggle={() => setExpandedId(expanded ? null : incident.id)}
+                  onUpdateStatus={updateStatus}
+                  onAddEvent={addEvent}
+                />
               );
             })
           )}
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+/* ── Sub-components ──────────────────────────────────────── */
+
+function LearningStatCard({ icon, label, value, highlight }: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={`flex flex-1 items-center gap-2.5 rounded-lg border px-3.5 py-2.5 ${
+      highlight ? "border-float-red/20 bg-float-red/[0.03]" : "border-border bg-card"
+    }`}>
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+        {icon}
+      </div>
+      <div>
+        <p className="font-mono text-lg font-semibold tabular-nums text-foreground leading-none">{value}</p>
+        <p className="text-[10px] text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function IncidentCard({ incident, events, expanded, onToggle, onUpdateStatus, onAddEvent }: {
+  incident: Incident;
+  events: IncidentEvent[];
+  expanded: boolean;
+  onToggle: () => void;
+  onUpdateStatus: (id: string, status: string) => Promise<void>;
+  onAddEvent: (incident: Incident, type: string, message: string) => Promise<void>;
+}) {
+  const isActive = incident.status === "open" || incident.status === "investigating";
+
+  return (
+    <Card className={`transition-shadow ${expanded ? "shadow-md" : ""}`}>
+      <CardHeader className="cursor-pointer pb-3" onClick={onToggle}>
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-3">
+            {expanded ? (
+              <ChevronDown className="mt-0.5 h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="mt-0.5 h-4 w-4 text-muted-foreground" />
+            )}
+            <div>
+              <div className="flex items-center gap-2">
+                {severityIcon[incident.severity]}
+                <CardTitle className="text-base">{incident.title}</CardTitle>
+              </div>
+              {incident.description && (
+                <p className="mt-1 text-sm text-muted-foreground">{incident.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={severityColor[incident.severity]}>
+              {incident.severity}
+            </Badge>
+            <Badge variant="outline" className={statusColor[incident.status] || ""}>
+              {incident.status}
+            </Badge>
+            {incident.shortfall_amount && (
+              <span className="font-mono text-sm tabular-nums text-float-red">
+                {formatCurrency(incident.shortfall_amount)}
+              </span>
+            )}
+          </div>
+        </div>
+        {incident.opened_at && (
+          <p className="ml-7 mt-1 text-xs text-muted-foreground">
+            Opened {format(new Date(incident.opened_at), "MMM d, yyyy · h:mm a")}
+            {incident.closed_at && ` · Closed ${format(new Date(incident.closed_at), "MMM d, yyyy · h:mm a")}`}
+          </p>
+        )}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0">
+          {/* AI Learning Context */}
+          {events.length > 0 && (
+            <div className="ml-7 mb-4 flex items-center gap-2 rounded-lg border border-primary/10 bg-primary/[0.03] px-3 py-2">
+              <Sparkles size={13} className="shrink-0 text-primary" />
+              <p className="text-[11px] text-muted-foreground">
+                <span className="font-semibold text-foreground">Learning from this incident</span>
+                {" · "}{events.length} event{events.length !== 1 ? "s" : ""} tracked
+                {events.some((e) => e.type === "CALL_COMPLETED") && " · Call insights captured"}
+                {events.some((e) => e.type === "PAYMENT_RECEIVED") && " · Payment patterns recorded"}
+              </p>
+            </div>
+          )}
+
+          {/* Timeline */}
+          <div className="ml-7 border-l-2 border-border pl-4">
+            {events.length === 0 ? (
+              <p className="py-2 text-xs text-muted-foreground">No events recorded</p>
+            ) : (
+              events.map((evt, i) => (
+                <div key={i} className="relative mb-4 last:mb-0">
+                  <div className="absolute -left-[1.35rem] top-0.5 h-3 w-3 rounded-full border-2 border-border bg-card" />
+                  <div className="flex items-start gap-2">
+                    {eventTypeIcon[evt.type] || <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-foreground">{evt.message}</p>
+                        {(evt.type === "CALL_COMPLETED" || evt.type === "STRATEGY_COMPUTED") && (
+                          <Badge variant="outline" className="h-4 border-primary/20 bg-primary/5 px-1.5 text-[9px] font-semibold text-primary">
+                            <BookOpen size={8} className="mr-0.5" /> AI Learned
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(evt.timestamp), "MMM d · h:mm:ss a")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Actions */}
+          {isActive && (
+            <div className="ml-7 mt-4 flex gap-2 border-t border-border pt-4">
+              {incident.status === "open" && (
+                <Button size="sm" variant="outline" onClick={() => onUpdateStatus(incident.id, "investigating")}>
+                  Start Investigating
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => onUpdateStatus(incident.id, "mitigated")}>
+                Mark Mitigated
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onAddEvent(incident, "RESOLVED", "Incident resolved");
+                  onUpdateStatus(incident.id, "resolved");
+                }}
+              >
+                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Resolve
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
   );
 }
