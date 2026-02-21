@@ -11,6 +11,7 @@ import DashboardPage from "@/pages/Dashboard";
 import ChatPage from "@/pages/Chat";
 import CallsPage from "@/pages/Calls";
 import IncidentsPage from "@/pages/Incidents";
+import SettingsPage from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,7 +37,7 @@ function AppRoutes() {
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/calls" element={<CallsPage />} />
         <Route path="/incidents" element={<IncidentsPage />} />
-        <Route path="/settings" element={<div className="p-6 text-muted-foreground">Settings — coming in Phase 2</div>} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="/" element={<Navigate to={user ? "/dashboard" : "/auth"} replace />} />
       <Route path="*" element={<NotFound />} />

@@ -5,6 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatCurrency, daysOverdue, getInvoiceStatusColor } from "@/lib/format";
 import { Phone, CreditCard, Check, FileText, Plus } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
+import { InvoiceUploadDialog } from "./InvoiceUploadDialog";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Invoice = Tables<"invoices">;
@@ -12,10 +14,12 @@ type Invoice = Tables<"invoices">;
 interface InvoiceTableProps {
   invoices: Invoice[];
   onChase: () => void;
+  onRefresh?: () => void;
   payrollAtRisk: boolean;
 }
 
-export function InvoiceTable({ invoices, onChase, payrollAtRisk }: InvoiceTableProps) {
+export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: InvoiceTableProps) {
+  const [uploadOpen, setUploadOpen] = useState(false);
   const sorted = [...invoices].sort((a, b) => {
     const order: Record<string, number> = { overdue: 0, chasing: 1, unpaid: 2, upcoming: 3, paid: 4 };
     return (order[a.status ?? "unpaid"] ?? 2) - (order[b.status ?? "unpaid"] ?? 2);
@@ -26,7 +30,7 @@ export function InvoiceTable({ invoices, onChase, payrollAtRisk }: InvoiceTableP
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-semibold">Invoices</CardTitle>
         <div className="flex gap-1.5">
-          <Button variant="outline" size="sm" className="h-7 text-xs">
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setUploadOpen(true)}>
             <FileText size={12} className="mr-1" /> Upload
           </Button>
           <Button size="sm" className="h-7 text-xs">
@@ -104,6 +108,11 @@ export function InvoiceTable({ invoices, onChase, payrollAtRisk }: InvoiceTableP
           </Table>
         )}
       </CardContent>
+      <InvoiceUploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploaded={() => onRefresh?.()}
+      />
     </Card>
   );
 }
