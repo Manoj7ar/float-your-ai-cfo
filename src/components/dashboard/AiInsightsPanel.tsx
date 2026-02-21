@@ -36,12 +36,14 @@ const typeConfig: Record<string, { border: string; icon: React.ReactNode; bg: st
 
 export function AiInsightsPanel({ insights, onDismiss, onAction }: AiInsightsPanelProps) {
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col overflow-hidden">
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
-        <Sparkles size={14} className="text-primary" />
+        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10">
+          <Sparkles size={13} className="text-primary" />
+        </div>
         <CardTitle className="text-sm font-semibold">AI Insights</CardTitle>
         {insights.length > 0 && (
-          <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-[10px] font-bold text-primary">
             {insights.length}
           </span>
         )}

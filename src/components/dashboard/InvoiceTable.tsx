@@ -63,9 +63,14 @@ export function InvoiceTable({ invoices, onChase, onRefresh, payrollAtRisk }: In
   };
 
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-semibold">Invoices</CardTitle>
+        <div className="flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+            <FileText size={13} className="text-muted-foreground" />
+          </div>
+          <CardTitle className="text-sm font-semibold">Invoices</CardTitle>
+        </div>
         <div className="flex gap-1.5">
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setUploadOpen(true)}>
             <FileText size={12} className="mr-1" /> Upload
