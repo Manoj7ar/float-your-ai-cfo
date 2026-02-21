@@ -1,8 +1,9 @@
-import { RefreshCw, Bell } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useAccount } from "@/hooks/useAccount";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NlQueryBar } from "@/components/dashboard/NlQueryBar";
+import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 
 interface TopBarProps {
   title: string;
@@ -10,7 +11,7 @@ interface TopBarProps {
   insightCount?: number;
 }
 
-export function TopBar({ title, subtitle, insightCount = 0 }: TopBarProps) {
+export function TopBar({ title, subtitle }: TopBarProps) {
   const { account } = useAccount();
   const initials = account?.business_name
     ? account.business_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
@@ -35,19 +36,7 @@ export function TopBar({ title, subtitle, insightCount = 0 }: TopBarProps) {
           <TooltipContent>Refresh data</TooltipContent>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative h-8 w-8 text-muted-foreground hover:text-foreground">
-              <Bell size={15} />
-              {insightCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                  {insightCount}
-                </span>
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Notifications</TooltipContent>
-        </Tooltip>
+        <NotificationsDropdown />
 
         <Tooltip>
           <TooltipTrigger asChild>
